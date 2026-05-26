@@ -16,7 +16,10 @@ from datetime import datetime
 
 
 # 모델명 — 환경변수로 덮어쓸 수 있음
-GPT_MODEL = os.environ.get("GEO_GPT_MODEL", "gpt-4o-search-preview")
+# 모델명 — 환경변수로 덮어쓸 수 있음.
+# GPT 는 Responses API + web_search tool 로 검색하므로 일반 gpt-4o 사용
+# (gpt-4o-search-preview 는 검색결과를 정제 안 하고 링크째 토해내서 폐기).
+GPT_MODEL = os.environ.get("GEO_GPT_MODEL", "gpt-4o")
 GEMINI_MODEL = os.environ.get("GEO_GEMINI_MODEL", "gemini-2.5-flash")
 CLAUDE_MODEL = os.environ.get("GEO_CLAUDE_MODEL", "claude-sonnet-4-20250514")
 
@@ -40,8 +43,8 @@ def _err(name, msg):
 
 
 def ask_gpt(prompt: str) -> dict:
-    """GPT — 웹검색 켜고 측정 (gpt-4o-search-preview + web_search_options).
-    실제 소비자가 ChatGPT 앱에서 받는 것과 같은 '검색 기반' 답을 받기 위함.
+    """GPT — Responses API + web_search tool. 검색은 뒤에서 하고 답변은
+    사람이 ChatGPT 앱에서 받듯 깔끔하게 정리돼 나온다 (링크 덤프 X).
     """
     key = os.environ.get("OPENAI_API_KEY")
     if not key:
@@ -49,28 +52,23 @@ def ask_gpt(prompt: str) -> dict:
     try:
         from openai import OpenAI
         client = OpenAI(api_key=key)
-        # search-preview 모델은 web_search_options 필수, temperature 미지원 → 넣지 않음
-        resp = client.chat.completions.create(
-            model=GPT_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            web_search_options={},
-            max_tokens=1200,
-        )
-        return {"provider": "gpt", "ok": True, "answer": resp.choices[0].message.content or "", "error": ""}
     except Exception as e:
-        # search 모델/옵션 미지원 환경이면 일반 모델로 폴백 (측정은 되게)
+        return _err("gpt", str(e)[:200])
+    # web_search → (구버전)web_search_preview → 검색없이 일반, 순서로 폴백
+    for tool in ("web_search", "web_search_preview", None):
         try:
-            from openai import OpenAI
-            client = OpenAI(api_key=key)
-            resp = client.chat.completions.create(
-                model="gpt-4o",
-                messages=[{"role": "user", "content": prompt}],
-                max_tokens=1200,
-            )
-            return {"provider": "gpt", "ok": True, "answer": resp.choices[0].message.content or "",
-                    "error": f"(웹검색 폴백: {str(e)[:80]})"}
-        except Exception as e2:
-            return _err("gpt", str(e2)[:200])
+            kwargs = {"model": GPT_MODEL, "input": prompt}
+            if tool:
+                kwargs["tools"] = [{"type": tool}]
+            resp = client.responses.create(**kwargs)
+            answer = getattr(resp, "output_text", "") or ""
+            if not answer:
+                continue
+            return {"provider": "gpt", "ok": True, "answer": answer,
+                    "error": "" if tool else "(검색없이 폴백)"}
+        except Exception:
+            continue
+    return _err("gpt", "GPT Responses 호출 실패 (web_search/일반 모두)")
 
 
 def ask_gemini(prompt: str) -> dict:
