@@ -24,22 +24,27 @@ CONTENT_MODEL = os.environ.get("GEO_CONTENT_MODEL", "claude-sonnet-4-20250514")
 def _summarize_traffix(traffix: dict) -> str:
     """트래픽스 데이터를 프롬프트에 넣을 텍스트로 압축.
 
-    주의: 네이버 쇼핑 검색 API 는 리뷰 수를 제공하지 않는다(항상 0).
-    따라서 리뷰 수는 통계에서 제외하고, 신뢰 가능한 가격·브랜드 분포만 쓴다.
+    핵심: '실제 쇼핑 순위 상위 제품(top_ranked)' 을 순위 그대로 보여준다.
+    (옛 방식인 '전체 brand 빈도 집계'는 순위를 무시해 엉터리였으므로 쓰지 않는다.)
+    네이버 쇼핑 API 는 리뷰 수를 안 주므로 리뷰는 통계에서 제외.
     """
     if not traffix or not traffix.get("ok"):
         return "(상위 제품 데이터 없음)"
     stats = traffix.get("stats", {}) or {}
     price = stats.get("price", {}) or {}
     lines = []
-    lines.append(f"- 분석 제품 수: 상위 {traffix.get('count', 0)}개")
+    lines.append(f"- 분석 제품 수: 상위 {traffix.get('count', 0)}개 (네이버 쇼핑 실제 노출 순위 기준)")
     if price.get("count_with_price"):
         lines.append(f"- 가격대: 최저 {price.get('min'):,}원 ~ 최고 {price.get('max'):,}원, "
                      f"평균 {price.get('avg'):,}원 / 중앙값 {price.get('median'):,}원")
-    bd = stats.get("brand_distribution", []) or []
-    if bd:
-        top_brands = ", ".join(f"{b['brand']}({b['count']}개)" for b in bd[:8])
-        lines.append(f"- 상위 노출 브랜드 분포: {top_brands}")
+    # ★ 실제 순위 상위 제품 (순위 보존) — 글의 핵심 근거 (키워드분석과 동일)
+    tr = stats.get("top_ranked", []) or []
+    if tr:
+        lines.append("- 실제 쇼핑 순위 상위 제품 (순위 / 제품명 / 브랜드 / 가격):")
+        for p in tr[:15]:
+            brand = p.get("brand") or "-"
+            price_v = p.get("price") or 0
+            lines.append(f"    {p.get('rank')}위. {p.get('title','')[:40]} / {brand} / {price_v:,}원")
     target = traffix.get("target")
     if target:
         lines.append(f"- 타겟 브랜드 현재 노출: 상위 {target.get('rank')}위 / 가격 {target.get('price')}원")
@@ -129,7 +134,7 @@ def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_su
 [작성 지침 — AI 인용 최적화 + 이기는 구도 (단, 위 공정위 규칙 우선)]
 1. H1 제목 + H2/H3 구조(마크다운). 제목에 키워드 포함.
 2. 도입부 2~3문장에 핵심 결론 먼저 (AI 가 요약 인용하기 좋게).
-3. 위 '네이버 쇼핑 상위 제품 통계'의 실제 수치(가격대·브랜드 분포)를
+3. 위 '네이버 쇼핑 상위 제품 통계'의 실제 수치(가격대·실제 순위 상위 제품)를
    표/숫자로 본문에 반드시 인용. (없는 숫자 날조 금지. 리뷰 수는 쓰지 마라.)
 4. ⭐핵심: '{target_brand} vs {comp_str}' 비교표를 반드시 만든다.
    - 표의 각 행/열에 경쟁사를 '실명으로' 넣어라 ('경쟁 제품'으로 뭉뚱그리는 것 절대 금지).
