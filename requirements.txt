@@ -1,0 +1,6 @@
+fastapi
+uvicorn[standard]
+openai
+google-generativeai
+anthropic
+requests
