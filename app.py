@@ -80,6 +80,35 @@ async def api_analyze(request: Request):
     })
 
 
+def _extract_top_competitors(traffix, target_brand, limit=6):
+    """실제 순위 상위 제품(top_ranked)에서 타겟 제외 경쟁 브랜드를 순위 순서대로 추출.
+    brand 필드가 비면 제목 앞부분에서 브랜드를 추정한다.
+    """
+    if not traffix or not traffix.get("ok"):
+        return []
+    top = (traffix.get("stats", {}) or {}).get("top_ranked", []) or []
+    tb = (target_brand or "").strip().lower().replace(" ", "")
+    out = []
+    seen = set()
+    for p in top:
+        b = (p.get("brand") or "").strip()
+        if not b:
+            title = (p.get("title") or "").strip()
+            b = title.split()[0] if title else ""
+        if not b:
+            continue
+        bl = b.lower().replace(" ", "")
+        if tb and tb in bl:           # 타겟 브랜드는 제외
+            continue
+        if bl in seen:
+            continue
+        seen.add(bl)
+        out.append(b)
+        if len(out) >= limit:
+            break
+    return out
+
+
 @app.post("/api/generate")
 async def api_generate(request: Request):
     body = await request.json()
@@ -91,12 +120,24 @@ async def api_generate(request: Request):
     if not keyword or not target_brand:
         return JSONResponse({"error": "키워드와 타겟 브랜드는 필수"}, status_code=400)
 
-    # 1단계: 트래픽스에서 키워드 상위 제품 실데이터 (네이버 쇼핑 통계)
-    traffix = fetch_products(keyword, target_brand=target_brand, display=60)
-    # 2단계 보조: AI 웹검색으로 타겟+경쟁사 평판(긍/부정) 파싱
-    reps = fetch_all_reputations(target_brand, competitors, keyword)
-    # 3단계: 실데이터 + 평판 → 디베아 주인공 글 초안
-    out = generate_geo_content(keyword, target_brand, competitors, traffix, reps, analysis_summary)
+    # 1단계: 트래픽스에서 키워드 '실제 순위' 상위 제품 (네이버 쇼핑 노출 순위)
+    traffix = fetch_products(keyword, target_brand=target_brand, display=80)
+
+    # 1.5단계: 순위 상위권에서 경쟁 브랜드 자동 추출 → 유저 입력과 합쳐 비교 대상 확정
+    auto_comp = _extract_top_competitors(traffix, target_brand, limit=6)
+    final_comp = list(competitors)
+    seen = {c.lower().replace(" ", "") for c in final_comp}
+    for c in auto_comp:
+        cl = c.lower().replace(" ", "")
+        if cl not in seen:
+            seen.add(cl)
+            final_comp.append(c)
+    final_comp = final_comp[:7]  # 디베아 vs 상위권 최대 7개
+
+    # 2단계: 타겟 + (자동 추출 포함) 경쟁사 각각 웹검색 평판(강점/약점) 수집
+    reps = fetch_all_reputations(target_brand, final_comp, keyword)
+    # 3단계: 실순위 + 평판 → '디베아 vs 상위권 강점/약점 비교분석' 글
+    out = generate_geo_content(keyword, target_brand, final_comp, traffix, reps, analysis_summary)
     if not out["ok"]:
         return JSONResponse({"error": out["error"]}, status_code=500)
     return JSONResponse({
@@ -105,6 +146,7 @@ async def api_generate(request: Request):
             "traffix_ok": traffix.get("ok", False),
             "traffix_error": traffix.get("error", ""),
             "product_count": traffix.get("count", 0),
+            "competitors_used": final_comp,
             "reputation_ok": reps.get("target", {}).get("ok", False),
             "reputation_searched": reps.get("target", {}).get("searched", False),
         },

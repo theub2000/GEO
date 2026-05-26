@@ -27,10 +27,12 @@ CLAUDE_MODEL = os.environ.get("GEO_CLAUDE_MODEL", "claude-sonnet-4-20250514")
 #    AI 가 최신 정보를 아는지가 아니다.)
 def build_user_prompt(keyword: str) -> str:
     kw = (keyword or "").strip()
+    # "검색하겠습니다~" 같은 과정 설명을 빼고 추천 결과만 자연스럽게 말하도록 유도
+    tail = " 검색하겠다는 말이나 과정 설명 없이, 바로 추천 제품·브랜드와 이유만 자연스럽게 알려줘."
     # keyword 가 이미 '추천/비교' 같은 완성 질문이면 그대로, 아니면 추천 요청으로 감싼다
     if any(x in kw for x in ("추천", "?", "알려", "비교", "어떤", "뭐", "골라")):
-        return kw
-    return f"{kw} 추천해줘. 구체적인 제품/브랜드 이름과 이유를 알려줘."
+        return kw + tail
+    return f"{kw} 추천해줘. 구체적인 제품/브랜드 이름과 이유를 알려줘." + tail
 
 
 def _err(name, msg):
