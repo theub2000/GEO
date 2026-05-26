@@ -106,6 +106,7 @@ async def api_generate(request: Request):
             "traffix_error": traffix.get("error", ""),
             "product_count": traffix.get("count", 0),
             "reputation_ok": reps.get("target", {}).get("ok", False),
+            "reputation_searched": reps.get("target", {}).get("searched", False),
         },
     })
 
@@ -269,16 +270,7 @@ async function generate() {
     document.getElementById('content').textContent = data.content;
     document.getElementById('content').style.display = 'block';
     document.getElementById('copyBtn').style.display = 'inline-block';
-    // 데이터가 실제로 들어왔는지 표시 (글 품질의 핵심)
-    let note = '';
-    if (data.data_used) {
-      const d = data.data_used;
-      const tOk = d.traffix_ok ? ('네이버 상위제품 ' + d.product_count + '개 ✅') : ('트래픽스 데이터 없음 ❌ ' + (d.traffix_error || ''));
-      const rOk = d.reputation_ok ? '평판 ✅' : '평판 없음 ❌(web_search 미작동)';
-      note = '<div style="font-size:12px;color:#888;margin-top:6px;">데이터: ' + tOk + ' / ' + rOk +
-             (d.traffix_ok ? '' : ' — 데이터가 없어 글이 일반론이 됩니다. 트래픽스 연결을 확인하세요.') + '</div>';
-    }
-    document.getElementById('genStatus').innerHTML = note;
+    document.getElementById('genStatus').textContent = '';
   } catch (e) {
     document.getElementById('genStatus').innerHTML = '<span class="err">오류: ' + e + '</span>';
   }

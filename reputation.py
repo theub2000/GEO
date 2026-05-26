@@ -25,27 +25,49 @@ def fetch_reputation(brand: str, keyword: str) -> dict:
         import anthropic
         client = anthropic.Anthropic(api_key=key)
         prompt = (
-            f"'{brand}' {keyword} 제품에 대한 실제 사용자 평판을 웹에서 찾아 정리해줘.\n"
-            f"실제 후기/기사에서 자주 나오는 장점과 단점을 각각 핵심만 뽑아.\n"
-            f"반드시 아래 JSON 형식으로만 답해 (설명/머리말 없이):\n"
-            f'{{"pros": ["장점1", "장점2", "장점3"], "cons": ["단점1", "단점2"]}}'
+            f"'{brand}' {keyword}에 대한 실제 사용자 평판을 웹에서 검색해서 정리해줘.\n"
+            f"반드시 web_search 도구로 실제 검색을 먼저 해. 검색하지 않고 추측으로 답하지 마.\n\n"
+            f"규칙:\n"
+            f"- 검색 결과(실제 후기/기사/블로그)에서 '실제로 확인된' 장점/단점만 적어.\n"
+            f"- 검색으로 확인 안 되는 내용은 절대 지어내지 마. 없으면 빈 배열로 둬.\n"
+            f"- 각 항목에 근거(어디서 나온 의견인지, 출처 성격)를 'basis'에 짧게 적어.\n"
+            f"- 과장·단정 표현 금지. '~라는 후기가 있다' 수준의 객관 서술로.\n\n"
+            f"아래 JSON 형식으로만 답해 (설명/머리말 없이):\n"
+            f'{{"pros": [{{"point": "장점", "basis": "근거/출처성격"}}], '
+            f'"cons": [{{"point": "단점", "basis": "근거/출처성격"}}]}}'
         )
         resp = client.messages.create(
             model=REPUTATION_MODEL,
-            max_tokens=1000,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
+            max_tokens=1500,
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
             messages=[{"role": "user", "content": prompt}],
         )
-        # 텍스트 블록만 모아서 JSON 추출
+        # 실제 web_search 가 실행됐는지 확인 (server_tool_use / web_search_tool_result 블록)
+        searched = any(getattr(b, "type", "") in ("server_tool_use", "web_search_tool_result")
+                       for b in resp.content)
         text = "".join(b.text for b in resp.content if getattr(b, "type", "") == "text")
         parsed = _extract_json(text)
         if parsed is None:
-            return {"ok": True, "brand": brand, "pros": [], "cons": [], "raw": text[:500],
-                    "error": "JSON 파싱 실패 (raw 참고)"}
+            return {"ok": True, "brand": brand, "pros": [], "cons": [], "searched": searched,
+                    "raw": text[:500], "error": "JSON 파싱 실패 (raw 참고)"}
         return {"ok": True, "brand": brand,
-                "pros": parsed.get("pros", []) or [], "cons": parsed.get("cons", []) or [], "error": ""}
+                "pros": _norm(parsed.get("pros")), "cons": _norm(parsed.get("cons")),
+                "searched": searched, "error": ""}
     except Exception as e:
         return {"ok": False, "brand": brand, "pros": [], "cons": [], "error": str(e)[:160]}
+
+
+def _norm(items):
+    """[{point,basis}] 또는 ['문자열'] 둘 다 [{point,basis}] 로 정규화."""
+    out = []
+    for it in (items or []):
+        if isinstance(it, dict):
+            p = (it.get("point") or "").strip()
+            if p:
+                out.append({"point": p, "basis": (it.get("basis") or "").strip()})
+        elif isinstance(it, str) and it.strip():
+            out.append({"point": it.strip(), "basis": ""})
+    return out
 
 
 def _extract_json(text: str):

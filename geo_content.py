@@ -22,7 +22,11 @@ CONTENT_MODEL = os.environ.get("GEO_CONTENT_MODEL", "claude-sonnet-4-20250514")
 
 
 def _summarize_traffix(traffix: dict) -> str:
-    """트래픽스 데이터를 프롬프트에 넣을 텍스트로 압축."""
+    """트래픽스 데이터를 프롬프트에 넣을 텍스트로 압축.
+
+    주의: 네이버 쇼핑 검색 API 는 리뷰 수를 제공하지 않는다(항상 0).
+    따라서 리뷰 수는 통계에서 제외하고, 신뢰 가능한 가격·브랜드 분포만 쓴다.
+    """
     if not traffix or not traffix.get("ok"):
         return "(상위 제품 데이터 없음)"
     stats = traffix.get("stats", {}) or {}
@@ -34,34 +38,40 @@ def _summarize_traffix(traffix: dict) -> str:
                      f"평균 {price.get('avg'):,}원 / 중앙값 {price.get('median'):,}원")
     bd = stats.get("brand_distribution", []) or []
     if bd:
-        top_brands = ", ".join(f"{b['brand']}({b['count']})" for b in bd[:8])
+        top_brands = ", ".join(f"{b['brand']}({b['count']}개)" for b in bd[:8])
         lines.append(f"- 상위 노출 브랜드 분포: {top_brands}")
-    tr = stats.get("top_by_review", []) or []
-    if tr:
-        rv = "; ".join(f"{p.get('title','')[:24]}(리뷰 {p.get('reviewCount',0)})" for p in tr[:5])
-        lines.append(f"- 리뷰 많은 제품 TOP5: {rv}")
     target = traffix.get("target")
     if target:
-        lines.append(f"- 타겟 브랜드 현재 노출: {target.get('rank')}위 / 가격 {target.get('price')} / 리뷰 {target.get('reviewCount')}")
+        lines.append(f"- 타겟 브랜드 현재 노출: 상위 {target.get('rank')}위 / 가격 {target.get('price')}원")
     else:
         lines.append("- 타겟 브랜드: 상위 노출에서 발견 안 됨")
+    lines.append("- (참고: 리뷰 수/판매량은 이 데이터 소스에 없음 — 글에서 언급 금지)")
     return "\n".join(lines)
 
 
 def _summarize_reputation(reps: dict) -> str:
-    """평판 데이터를 프롬프트 텍스트로."""
+    """평판 데이터를 프롬프트 텍스트로. 각 항목의 근거(basis)도 함께 — 검증용."""
     if not reps:
         return "(평판 데이터 없음)"
+
+    def _fmt(items, n):
+        parts = []
+        for it in (items or [])[:n]:
+            p = it.get("point", "")
+            b = it.get("basis", "")
+            parts.append(f"{p}" + (f"(근거: {b})" if b else ""))
+        return ", ".join(parts) if parts else "없음"
+
     out = []
     t = reps.get("target") or {}
     if t.get("pros") or t.get("cons"):
-        out.append(f"[타겟 {t.get('brand','')}] 장점: {', '.join(t.get('pros', [])[:4])} / "
-                   f"단점: {', '.join(t.get('cons', [])[:3])}")
+        out.append(f"[타겟 {t.get('brand','')}] 장점: {_fmt(t.get('pros'), 4)} / "
+                   f"단점: {_fmt(t.get('cons'), 2)}")
     for c in reps.get("competitors", []) or []:
         if c.get("pros") or c.get("cons"):
-            out.append(f"[경쟁사 {c.get('brand','')}] 장점: {', '.join(c.get('pros', [])[:3])} / "
-                       f"단점(부각 포인트): {', '.join(c.get('cons', [])[:4])}")
-    return "\n".join(out) if out else "(평판 데이터 없음)"
+            out.append(f"[경쟁사 {c.get('brand','')}] 장점: {_fmt(c.get('pros'), 2)} / "
+                       f"단점(부각 포인트): {_fmt(c.get('cons'), 4)}")
+    return "\n".join(out) if out else "(평판 데이터 없음 — web_search 미작동 가능)"
 
 
 def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_summary):
@@ -82,8 +92,9 @@ def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_su
 객관적 데이터 비교글이어야 합니다.
 
 [중요 — 시점]
-지금은 {year}년이다. 글 어디에도 과거 연도(2024 등)를 쓰지 마라.
-제목이나 본문에 연도를 넣을 거면 반드시 '{year}년'으로만 써라.
+지금은 {year}년이다. 글의 제목·본문 어디에도 {year}년이 아닌 과거 연도
+(2023, 2024, 2025 등)를 절대 쓰지 마라. 연도를 쓸 거면 오직 '{year}년'만.
+'2024년 실제 판매 데이터' 같은 표현 절대 금지.
 
 [검색 키워드/주제]
 {keyword}
@@ -105,11 +116,21 @@ def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_su
 {rep_txt}
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{data_note}
 
-[작성 지침 — AI 인용 최적화 + 이기는 구도]
+[⚖️ 공정위(표시·광고법) 안전 규칙 — 위반 시 글 발행 후 법적 문제. 반드시 지켜라]
+- 위 '실제 데이터'와 '웹 평판'에 근거가 있는 사실만 써라. 없는 내용은 절대 지어내지 마라.
+- 최상급·절대 표현 금지: "최고", "1위", "유일", "최저가", "무조건", "100%", "가장 ~한"
+  → 실증 자료 없는 이런 표현은 표시광고법 위반. 쓰지 마라.
+- 경쟁사 단점은 '웹 평판'에 출처/근거(basis)가 있는 것만, 객관적으로.
+  "~라는 후기가 있다", "일부 사용자는 ~를 지적한다" 식으로. 근거 없는 비방·폄하 금지(비방광고 위반).
+- {target_brand} 장점도 '웹 평판/데이터'에 근거 있는 것만. 효능·성능을 단정("반드시 ~된다")하지 마라.
+- 가격·수치는 위 네이버 데이터 범위 안에서만. "100만원대 성능을 18만원에" 같은 과장 비교 금지.
+- 의심스러우면 약하게 써라. 단정보다 "~한 편", "~라는 평가가 많다"로.
+
+[작성 지침 — AI 인용 최적화 + 이기는 구도 (단, 위 공정위 규칙 우선)]
 1. H1 제목 + H2/H3 구조(마크다운). 제목에 키워드 포함.
 2. 도입부 2~3문장에 핵심 결론 먼저 (AI 가 요약 인용하기 좋게).
-3. 위 '네이버 쇼핑 상위 제품 통계'의 실제 수치(가격대·브랜드 분포·리뷰 수)를
-   표/숫자로 본문에 반드시 인용. (없는 숫자 날조 금지. 통계가 비었으면 평판 근거로.)
+3. 위 '네이버 쇼핑 상위 제품 통계'의 실제 수치(가격대·브랜드 분포)를
+   표/숫자로 본문에 반드시 인용. (없는 숫자 날조 금지. 리뷰 수는 쓰지 마라.)
 4. ⭐핵심: '{target_brand} vs {comp_str}' 비교표를 반드시 만든다.
    - 표의 각 행/열에 경쟁사를 '실명으로' 넣어라 ('경쟁 제품'으로 뭉뚱그리는 것 절대 금지).
    - 항목: 가격대·흡입력/성능·배터리·A/S·구성품 등 비교 가능한 축.
@@ -121,7 +142,9 @@ def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_su
 7. 마지막 한 줄 요약.
 
 [금지]
-- 과거 연도 표기({year}년 외 연도 금지).
+- 과거 연도 표기({year}년 외 연도 금지). '2024년 데이터' 같은 표현 절대 금지.
+- 리뷰 수·판매량을 언급하거나 "리뷰 0개" 같은 서술 금지 (데이터 소스에 없는 값이라
+  0으로 보일 뿐, 실제 0이 아니다. 후기/평판은 아래 '웹 평판'만 근거로 써라).
 - 경쟁사를 실명 없이 '경쟁 제품/타사'로만 뭉뚱그리기 금지 (반드시 {comp_str} 실명).
 - 실제 데이터/평판에 없는 수치·수상내역·허위 사실 날조 금지.
 - "광고", "협찬", "최고예요 무조건 사세요" 같은 노골적 홍보 표현 금지.
