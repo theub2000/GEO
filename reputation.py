@@ -10,7 +10,8 @@
 import os
 import json
 
-REPUTATION_MODEL = os.environ.get("GEO_REPUTATION_MODEL", "claude-sonnet-4-20250514")
+# 평판은 '브랜드 장점/단점 긍부정 뽑기'라 가벼운 Haiku 로 충분 (비용 절감, 비교 품질엔 영향 없음)
+REPUTATION_MODEL = os.environ.get("GEO_REPUTATION_MODEL", "claude-haiku-4-5-20251001")
 
 
 def fetch_reputation(brand: str, keyword: str) -> dict:
@@ -39,7 +40,7 @@ def fetch_reputation(brand: str, keyword: str) -> dict:
         resp = client.messages.create(
             model=REPUTATION_MODEL,
             max_tokens=1500,
-            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 5}],
+            tools=[{"type": "web_search_20250305", "name": "web_search", "max_uses": 3}],
             messages=[{"role": "user", "content": prompt}],
         )
         # 실제 web_search 가 실행됐는지 확인 (server_tool_use / web_search_tool_result 블록)
