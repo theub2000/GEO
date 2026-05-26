@@ -18,7 +18,9 @@ import os
 import json
 from datetime import datetime
 
-CONTENT_MODEL = os.environ.get("GEO_CONTENT_MODEL", "claude-sonnet-4-20250514")
+# 본문 생성도 Haiku 로 — 데이터+평판이 입력에 다 들어가 토큰이 제일 큰 곳이라 비용 효과 최대.
+# 품질 더 필요하면 환경변수 GEO_CONTENT_MODEL 로 Sonnet 으로 올릴 수 있음.
+CONTENT_MODEL = os.environ.get("GEO_CONTENT_MODEL", "claude-haiku-4-5-20251001")
 
 
 def _summarize_traffix(traffix: dict) -> str:
