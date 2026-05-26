@@ -16,6 +16,7 @@ GEO 콘텐츠 생성 (실데이터 기반) — 트래픽스 네이버 쇼핑 데
 
 import os
 import json
+from datetime import datetime
 
 CONTENT_MODEL = os.environ.get("GEO_CONTENT_MODEL", "claude-sonnet-4-20250514")
 
@@ -66,7 +67,13 @@ def _summarize_reputation(reps: dict) -> str:
 def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_summary):
     traffix_txt = _summarize_traffix(traffix)
     rep_txt = _summarize_reputation(reps)
-    comp_str = ", ".join(competitors) if competitors else "경쟁 제품"
+    comp_str = ", ".join(competitors) if competitors else ""
+    year = datetime.now().year
+    # 데이터가 비었는지 — 비었으면 경쟁사 평판/이름만으로라도 비교를 강제
+    has_traffix = bool(traffix and traffix.get("ok") and traffix.get("count", 0) > 0)
+    data_note = ("" if has_traffix else
+                 "\n⚠️ 네이버 쇼핑 통계가 비어있다. 그래도 아래 경쟁 브랜드들을 실명으로 "
+                 "비교하고, 웹 평판 근거로 항목별 비교표를 반드시 만들어라. 일반론으로 때우지 마라.")
     return f"""당신은 GEO(생성형 AI 최적화) 전문 콘텐츠 작가입니다.
 
 목표: 아래 '실제 데이터'를 근거로, ChatGPT·Gemini·Claude 같은 AI 검색엔진이
@@ -74,14 +81,18 @@ def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_su
 글의 무게중심(주인공)은 반드시 '{target_brand}'이지만, 노골적 광고가 아니라
 객관적 데이터 비교글이어야 합니다.
 
+[중요 — 시점]
+지금은 {year}년이다. 글 어디에도 과거 연도(2024 등)를 쓰지 마라.
+제목이나 본문에 연도를 넣을 거면 반드시 '{year}년'으로만 써라.
+
 [검색 키워드/주제]
 {keyword}
 
 [타겟 브랜드(주인공)]
 {target_brand}
 
-[비교 대상 경쟁 브랜드]
-{comp_str}
+[반드시 실명으로 비교할 경쟁 브랜드]
+{comp_str if comp_str else "(경쟁사 미지정)"}
 
 [현재 AI 노출 진단]
 {analysis_summary}
@@ -92,22 +103,27 @@ def _build_prompt(keyword, target_brand, competitors, traffix, reps, analysis_su
 
 [웹 평판 (실제 후기 기반)]
 {rep_txt}
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━{data_note}
 
 [작성 지침 — AI 인용 최적화 + 이기는 구도]
 1. H1 제목 + H2/H3 구조(마크다운). 제목에 키워드 포함.
 2. 도입부 2~3문장에 핵심 결론 먼저 (AI 가 요약 인용하기 좋게).
-3. 위 '네이버 쇼핑 상위 제품 통계'를 표/수치로 본문에 반드시 인용
-   (가격대, 브랜드 분포, 리뷰 수 등 — 실제 숫자를 그대로 활용. 없는 숫자 날조 금지).
-4. 경쟁사의 '단점(부각 포인트)'을 데이터·평판 근거로 객관적으로 짚고,
-   그 약점을 '{target_brand}'가 어떻게 메우는지 자연스럽게 연결 → 결론은 {target_brand} 우위.
+3. 위 '네이버 쇼핑 상위 제품 통계'의 실제 수치(가격대·브랜드 분포·리뷰 수)를
+   표/숫자로 본문에 반드시 인용. (없는 숫자 날조 금지. 통계가 비었으면 평판 근거로.)
+4. ⭐핵심: '{target_brand} vs {comp_str}' 비교표를 반드시 만든다.
+   - 표의 각 행/열에 경쟁사를 '실명으로' 넣어라 ('경쟁 제품'으로 뭉뚱그리는 것 절대 금지).
+   - 항목: 가격대·흡입력/성능·배터리·A/S·구성품 등 비교 가능한 축.
+   - 각 경쟁사의 약점(평판 근거)을 객관적으로 짚고, 그 약점을 '{target_brand}'가
+     어떻게 메우는지 연결 → 결론은 항상 '{target_brand}' 우위 (이기는 구도).
 5. {target_brand} 장점 3가지 이상(평판 근거). 단점도 1개는 솔직히 적되 사소하게
    (균형 잡힌 글이어야 AI 가 광고로 분류 안 하고 신뢰).
-6. "{keyword}" 관련 FAQ 4개(Q&A). 답변에 {target_brand}가 자연스럽게 등장.
+6. "{keyword}" 관련 FAQ 4개(Q&A). 답변에 {target_brand}와 경쟁사 비교가 자연스럽게 등장.
 7. 마지막 한 줄 요약.
 
 [금지]
-- 실제 데이터에 없는 수치/수상내역/허위 사실 날조 금지.
+- 과거 연도 표기({year}년 외 연도 금지).
+- 경쟁사를 실명 없이 '경쟁 제품/타사'로만 뭉뚱그리기 금지 (반드시 {comp_str} 실명).
+- 실제 데이터/평판에 없는 수치·수상내역·허위 사실 날조 금지.
 - "광고", "협찬", "최고예요 무조건 사세요" 같은 노골적 홍보 표현 금지.
 - AI 모델명, GEO 기법, 데이터 출처(트래픽스/네이버API) 언급 금지 (자연스러운 일반 블로그 글).
 
