@@ -124,7 +124,7 @@ async def api_generate(request: Request):
     traffix = fetch_products(keyword, target_brand=target_brand, display=80)
 
     # 1.5단계: 순위 상위권에서 경쟁 브랜드 자동 추출 → 유저 입력과 합쳐 비교 대상 확정
-    auto_comp = _extract_top_competitors(traffix, target_brand, limit=6)
+    auto_comp = _extract_top_competitors(traffix, target_brand, limit=5)
     final_comp = list(competitors)
     seen = {c.lower().replace(" ", "") for c in final_comp}
     for c in auto_comp:
@@ -132,7 +132,7 @@ async def api_generate(request: Request):
         if cl not in seen:
             seen.add(cl)
             final_comp.append(c)
-    final_comp = final_comp[:7]  # 디베아 vs 상위권 최대 7개
+    final_comp = final_comp[:5]  # 디베아 vs 경쟁사 5개 (디베아 제외 상위에서)
 
     # 2단계: 타겟 + (자동 추출 포함) 경쟁사 각각 웹검색 평판(강점/약점) 수집
     reps = fetch_all_reputations(target_brand, final_comp, keyword)

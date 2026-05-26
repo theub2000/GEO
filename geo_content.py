@@ -41,15 +41,10 @@ def _summarize_traffix(traffix: dict) -> str:
     tr = stats.get("top_ranked", []) or []
     if tr:
         lines.append("- 실제 쇼핑 순위 상위 제품 (순위 / 제품명 / 브랜드 / 가격):")
-        for p in tr[:15]:
+        for p in tr[:5]:
             brand = p.get("brand") or "-"
             price_v = p.get("price") or 0
             lines.append(f"    {p.get('rank')}위. {p.get('title','')[:40]} / {brand} / {price_v:,}원")
-    target = traffix.get("target")
-    if target:
-        lines.append(f"- 타겟 브랜드 현재 노출: 상위 {target.get('rank')}위 / 가격 {target.get('price')}원")
-    else:
-        lines.append("- 타겟 브랜드: 상위 노출에서 발견 안 됨")
     lines.append("- (참고: 리뷰 수/판매량은 이 데이터 소스에 없음 — 글에서 언급 금지)")
     return "\n".join(lines)
 
